@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>デジタル画像変換アプリケーション</title>
+  <!-- Google Fonts を利用したおしゃれなフォント -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* 共通リセットと全体レイアウト */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #74ebd5, #ACB6E5);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background-color: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+      max-width: 900px;
+      width: 90%;
+      padding: 30px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    p.description {
+      text-align: center;
+      color: #555;
+      line-height: 1.5;
+    }
+    .controls {
+      margin: 20px 0;
+    }
+    .control-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #333;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    input[type="file"] {
+      display: block;
+      margin-top: 10px;
+    }
+    .mode-options {
+      margin-top: 10px;
+    }
+    .mode-options label {
+      display: inline-block;
+      margin-right: 15px;
+      font-weight: normal;
+      color: #555;
+    }
+    /* ドラッグ＆ドロップ領域 */
+    .drop-zone {
+      border: 2px dashed #bbb;
+      border-radius: 5px;
+      padding: 20px;
+      text-align: center;
+      color: #777;
+      margin-top: 10px;
+      transition: background-color 0.3s, border-color 0.3s;
+    }
+    .drop-zone.dragover {
+      background-color: #f0f8ff;
+      border-color: #333;
+      color: #333;
+    }
+    #resultCanvas {
+      display: block;
+      margin: 20px auto;
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+    }
+    .pixel-info, .data-info {
+      text-align: center;
+      font-size: 1em;
+      margin-top: 10px;
+      color: #444;
+    }
+    .info {
+      text-align: center;
+      font-size: 0.9em;
+      color: #666;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>デジタル画像変換アプリケーション</h1>
+    <p class="description">
+      このアプリケーションでは、アップロードした画像に対して「解像度」と「各色のビット数」を変更し、<br>
+      内部の画素数で画像の粗さ（ピクセルの大きさ）と色表現の精度を体感できます。<br>
+      ※表示される画像の横幅は常に一定（600px）です。
+    </p>
+    
+    <div class="controls">
+      <!-- 画像アップロード（ファイル選択＆ドラッグ＆ドロップ） -->
+      <div class="control-group">
+        <label for="upload">画像をアップロードしてください</label>
+        <input type="file" id="upload" accept="image/*">
+        <div id="dropZone" class="drop-zone">
+          ここに画像をドラッグ＆ドロップしてください
+        </div>
+      </div>
+      
+      <!-- 解像度スライダー（横方向の画素数） -->
+      <div class="control-group">
+        <label for="resolution">解像度（横方向の画素数）: <span id="resolutionValue">350</span> px</label>
+        <input type="range" id="resolution" min="10" max="600" value="350">
+      </div>
+      
+      <!-- 各色のビット数スライダー -->
+      <div class="control-group">
+        <label for="colorBits">各色のビット数: <span id="colorBitsValue">8</span> ビット</label>
+        <input type="range" id="colorBits" min="1" max="8" value="8">
+      </div>
+      
+      <!-- 画像モード選択（RGB or グレースケール） -->
+      <div class="control-group">
+        <label>画像モード</label>
+        <div class="mode-options">
+          <input type="radio" name="mode" id="modeRGB" value="rgb" checked>
+          <label for="modeRGB">RGB</label>
+          <input type="radio" name="mode" id="modeGray" value="gray">
+          <label for="modeGray">グレースケール</label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 表示用キャンバス（横幅固定） -->
+    <canvas id="resultCanvas"></canvas>
+    <!-- 内部解像度情報 -->
+    <div class="pixel-info" id="pixelInfo">現在の解像度：横 0 px, 縦 0 px</div>
+    <!-- 画像データ量の表示 -->
+    <div class="data-info" id="dataInfo">画像データ量: 未計算</div>
+    
+    <p class="info">
+      ※画像データ量 = 横画素数 × 縦画素数 × (ビット/ピクセル) ÷ 8 バイト<br>
+      RGBモードでは各ピクセル＝（各色のビット数 × 3）bit、グレースケールでは各ピクセル＝（各色のビット数）bitです。
+    </p>
+  </div>
+  
+  <script>
+    // 各要素の取得
+    const uploadInput = document.getElementById('upload');
+    const resolutionSlider = document.getElementById('resolution');
+    const colorBitsSlider = document.getElementById('colorBits');
+    const resolutionValueSpan = document.getElementById('resolutionValue');
+    const colorBitsValueSpan = document.getElementById('colorBitsValue');
+    const canvas = document.getElementById('resultCanvas');
+    const ctx = canvas.getContext('2d');
+    const pixelInfoDiv = document.getElementById('pixelInfo');
+    const dataInfoDiv = document.getElementById('dataInfo');
+    const modeRadios = document.getElementsByName('mode');
+    const dropZone = document.getElementById('dropZone');
+
+    // 固定の表示横幅（px）
+    const displayWidth = 600;
+    
+    // アップロードされた元画像
+    let originalImage = null;
+    
+    // パラメータ変更で再描画
+    resolutionSlider.addEventListener('input', () => {
+      resolutionValueSpan.textContent = resolutionSlider.value;
+      if (originalImage) updateImage();
+    });
+    colorBitsSlider.addEventListener('input', () => {
+      colorBitsValueSpan.textContent = colorBitsSlider.value;
+      if (originalImage) updateImage();
+    });
+    modeRadios.forEach(radio => {
+      radio.addEventListener('change', () => {
+        updateImage();
+      });
+    });
+    
+    // ファイル選択からの画像アップロード
+    uploadInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        loadImageFile(file);
+      }
+    });
+    
+    // ドラッグ＆ドロップのイベント
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        loadImageFile(file);
+      }
+    });
+    
+    // ファイルから画像を読み込み、originalImageに設定
+    function loadImageFile(file) {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          originalImage = img;
+          updateImage();
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    // 画像の内部解像度・各色ビット数に応じた量子化処理と表示更新
+    function updateImage() {
+      const targetPixelWidth = parseInt(resolutionSlider.value);
+      const colorBits = parseInt(colorBitsSlider.value);
+      // 各色の階調数は 2^(colorBits)
+      const levels = Math.pow(2, colorBits);
+      const step = 255 / (levels - 1);
+      
+      // オリジナル画像のアスペクト比から縦のピクセル数を算出
+      const aspectRatio = originalImage.height / originalImage.width;
+      const targetPixelHeight = Math.round(targetPixelWidth * aspectRatio);
+      
+      // オフスクリーンキャンバス作成（低解像度画像生成用）
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = targetPixelWidth;
+      offCanvas.height = targetPixelHeight;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.imageSmoothingEnabled = false;
+      
+      // 低解像度に縮小して描画
+      offCtx.drawImage(originalImage, 0, 0, targetPixelWidth, targetPixelHeight);
+      
+      let mode = 'rgb';
+      modeRadios.forEach(radio => {
+        if (radio.checked) mode = radio.value;
+      });
+      
+      // 量子化処理
+      let imageData = offCtx.getImageData(0, 0, targetPixelWidth, targetPixelHeight);
+      let data = imageData.data;
+      if (mode === 'rgb') {
+        for (let i = 0; i < data.length; i += 4) {
+          data[i]     = Math.round(data[i] / step) * step;     // R
+          data[i + 1] = Math.round(data[i + 1] / step) * step; // G
+          data[i + 2] = Math.round(data[i + 2] / step) * step; // B
+          // αはそのまま
+        }
+      } else if (mode === 'gray') {
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          const quantGray = Math.round(gray / step) * step;
+          data[i] = data[i + 1] = data[i + 2] = quantGray;
+        }
+      }
+      offCtx.putImageData(imageData, 0, 0);
+      
+      // 表示用キャンバス（横幅固定）のサイズ設定
+      const scaleFactor = displayWidth / targetPixelWidth;
+      canvas.width = displayWidth;
+      canvas.height = targetPixelHeight * scaleFactor;
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(offCanvas, 0, 0, canvas.width, canvas.height);
+      
+      // 内部解像度情報の更新
+      pixelInfoDiv.textContent = `現在の解像度：横 ${targetPixelWidth} px, 縦 ${targetPixelHeight} px`;
+      
+      // 画像データ量の計算
+      // ※画素数 = 横 × 縦
+      const totalPixels = targetPixelWidth * targetPixelHeight;
+      const bitsPerPixel = (mode === 'rgb') ? colorBits * 3 : colorBits;
+      const totalBits = totalPixels * bitsPerPixel;
+      const totalBytes = totalBits / 8;
+      const kb = (totalBytes / 1024).toFixed(2);
+      const mb = (totalBytes / (1024 * 1024)).toFixed(2);
+      
+      // ビット数に応じた表示色（1ビット→赤、8ビット→緑へ補間）
+      const hue = ((colorBits - 1) / 7) * 120;
+      dataInfoDiv.style.color = `hsl(${hue}, 70%, 40%)`;
+      
+      // 計算式と結果を表示（「横×縦」も明示）
+      dataInfoDiv.innerHTML =
+        `画像データ量: 横 ${targetPixelWidth} px × 縦 ${targetPixelHeight} px = ${totalPixels} 画素<br>
+         各ピクセル: ${bitsPerPixel} bit, 合計: ${totalBits} bit<br>
+         ＝ ${totalBytes} バイト, 約 ${kb} KB, 約 ${mb} MB`;
+    }
+  </script>
+</body>
+</html>
